@@ -1,4 +1,4 @@
-# googleearthengine
+# Google Earth Engine scripts
 This Git Repository contaings Google Earth Engine scripts that I shared publicly.
 
 The same sprits are also availabe in Google Earth Engine code base. 
