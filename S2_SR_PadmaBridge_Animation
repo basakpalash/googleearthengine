@@ -1,0 +1,177 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var poi = 
+    /* color: #d63000 */
+    /* shown: false */
+    ee.Geometry.Point([90.29736224365234, 23.445954400852813]),
+    region = 
+    /* color: #98ff00 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[90.19230548095703, 23.486658848990047],
+          [90.19230548095703, 23.391846103225554],
+          [90.32843295288086, 23.391846103225554],
+          [90.32843295288086, 23.486658848990047]]], null, false),
+    region2 = 
+    /* color: #0b4a8b */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[90.23676577758789, 23.479022801032468],
+          [90.23676577758789, 23.405473712561236],
+          [90.28551760864258, 23.405473712561236],
+          [90.28551760864258, 23.479022801032468]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+/**
+ * Function to mask clouds using the Sentinel-2 QA band
+ * @param {ee.Image} image Sentinel-2 image
+ * @return {ee.Image} cloud masked Sentinel-2 image
+ */
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+
+  // Bits 10 and 11 are clouds and cirrus, respectively.
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+
+  return image.updateMask(mask).divide(10000);
+}
+
+var col = ee.ImageCollection('LANDSAT/LC08/C02/T1_TOA')
+                  // .filterDate('2021-01-01', '2021-12-31')
+                  .filter(ee.Filter.calendarRange(2014,2022, 'year'))
+                  .filter(ee.Filter.calendarRange(1,1, 'month'))
+                  // Pre-filter to get less cloudy granules.
+                  .filter(ee.Filter.lt('CLOUD_COVER',10))
+                  .filterBounds(poi)
+                  // .map(maskS2clouds);
+                  .map(function(image) {
+                    var doy = ee.Date(image.get('system:time_start'))
+                    .getRelative('day', 'year');
+                    
+                    return image.set('doy', doy);
+                  });
+
+print('col', col);
+
+// col = col.map(maskS2clouds);
+// print('col', col);
+                  
+var visualization = {
+  min: 0.0,
+  max: 0.3,
+  bands: ['B7', 'B5', 'B2']
+};
+
+
+
+var distinctDOY = col.filterDate('2014-01-01', '2021-12-31');
+
+// Define a filter that identifies which images from the complete collection
+// match the DOY from the distinct DOY collection.
+var filter = ee.Filter.equals({leftField: 'doy', rightField: 'doy'});
+
+// Define a join.
+var join = ee.Join.saveAll('doy_matches');
+
+// Apply the join and convert the resulting FeatureCollection to an
+// ImageCollection.
+var joinCol = ee.ImageCollection(join.apply(distinctDOY, col, filter));
+
+print('joinCol', joinCol);
+
+// Apply median reduction among matching DOY collections.
+var comp = joinCol.map(function(img) {
+  var doyCol = ee.ImageCollection.fromImages(
+    img.get('doy_matches')
+  );
+  return doyCol.reduce(ee.Reducer.median());
+});
+
+print('comp', comp);
+
+// Map.setCenter(90.262, 23.4606, 13);
+Map.centerObject(poi, 13);
+
+Map.addLayer(col.median().clip(region), visualization, 'RGB');
+
+var style = require('users/gena/packages:style');
+var utils = require('users/gena/packages:utils');
+var text = require('users/gena/packages:text');
+
+
+var visParams = {
+  min: 0.0,
+  max: 0.3,
+  bands: ['B7_median', 'B5_median', 'B3_median']
+};
+
+
+
+// Create RGB visualization images for use as animation frames.
+var rgbVis = comp.map(function(img) {
+  var textVis = {fontSize: 32, textColor: 'yellow',
+    outlineColor: '000000', outlineWidth: 2, 
+    outlineOpacity: 0.8
+  };
+  
+  // Title
+  var label_title = 'Mawa';
+  var scale = 50;
+  var locate = text.getLocation(region, 'right', '12%','82%');
+  var title_text = text.draw(label_title, locate, scale, textVis);
+  
+  var label_title2 = 'Jajira';
+  var scale2 = 50;
+  var locate2 = text.getLocation(region, 'right', '46%','20%');
+  var title_text2 = text.draw(label_title2, locate2, scale2, textVis);
+  
+  // Image Date and Time
+  var imageId = ee.String(ee.Image(img).id());
+  var dt = ee.String(imageId.split("_").get(2));
+  var year = dt.slice(0, 4);
+  var month = dt.slice(4,6);
+  var day = dt.slice(6,8);
+  var dayPlusOne = ee.String(ee.Number.parse(day).add(1));
+  day = ee.String(ee.Algorithms.If(dt.slice(9,11).compareTo('11'), dayPlusOne, day));
+  var hour = ee.Algorithms.If(dt.slice(9,11).compareTo('11'), '09', '05');
+  var amPm = ee.Algorithms.If(dt.slice(9,11).compareTo('11'), ' AM', ' PM');
+  var min = dt.slice(11,13);
+  var imageDate = day.cat("-").cat(month).cat("-").cat(year).cat(" ").cat(hour).cat(":").cat(min).cat(amPm);
+  var scale3 = 50;
+  var locate3 = text.getLocation(region, 'right', '88%','95%');
+  var label_imageDate = text.draw(imageDate, locate3, scale3, textVis);
+
+  return img.visualize(visParams)
+            .clip(region)
+            .blend(title_text)
+            .blend(title_text2)
+            .blend(label_imageDate);
+});
+
+print(rgbVis);
+
+// Define GIF visualization parameters.
+var gifParams = {
+  'region': region,
+  'dimensions': 600,
+  'crs': 'EPSG:3857',
+  'framesPerSecond': 1
+};
+
+// Print the GIF URL to the console.
+print(rgbVis.getVideoThumbURL(gifParams));
+
+// Render the GIF animation in the console.
+print(ui.Thumbnail(rgbVis, gifParams));

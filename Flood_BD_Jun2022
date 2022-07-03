@@ -1,0 +1,83 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var region = 
+    /* color: #d63000 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[90.64188756356653, 25.35142507237974],
+          [90.64188756356653, 23.863185592128815],
+          [92.80619420419153, 23.863185592128815],
+          [92.80619420419153, 25.35142507237974]]], null, false),
+    geometryGradientBar = 
+    /* color: #98ff00 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[90.77683853693996, 24.093608569713915],
+          [90.77683853693996, 24.038436123723315],
+          [90.91416763850246, 24.038436123723315],
+          [90.91416763850246, 24.093608569713915]]], null, false),
+    geometryLabel1 = 
+    /* color: #0b4a8b */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[90.97733902522121, 24.08357898106961],
+          [90.97733902522121, 24.045961035965536],
+          [91.11466812678371, 24.045961035965536],
+          [91.11466812678371, 24.08357898106961]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var aoi = ee.FeatureCollection("users/palashbasak/bgd_admbnda_adm0_bbs_20201113_simplified");
+
+// var aoi = ee.FeatureCollection("users/palashbasak/bgd_admbnda_adm0_bbs_20201113");
+var bd_divs = ee.FeatureCollection("users/palashbasak/bgd_admbnda_adm1_bbs_20201113");
+// var aoi = bd_divs.filter(ee.Filter.eq('ADM1_EN','Sylhet'));
+
+// Filter the collection for the VV product from the descending track
+var s1 = ee.ImageCollection('COPERNICUS/S1_GRD')
+    .filter(ee.Filter.eq('instrumentMode', 'IW'))
+    // .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))
+    // .filter(ee.Filter.eq('orbitProperties_pass', 'DESCENDING'))
+    .filterDate('2022-05-21','2022-06-21')
+    .filterBounds(aoi);
+    // .select(['VV']);
+print(s1);
+
+var addVVVH = function(image) {
+  var VV = image.select('VV');
+  var VH = image.select('VH');
+  var VVVH = VV.multiply(VH).rename('VVVH').toDouble();
+  
+  return image.addBands(VVVH);
+};
+
+var image = s1.min();
+print(image);
+var image1 = addVVVH(image).select(['VV','VH','VVVH']);
+
+print(image1);
+
+Map.centerObject(bd_divs, 7);
+// See Waterbody as blue
+Map.addLayer(image1.clip(aoi), {bands: ['VH','VV','VVVH'], min: -20, max: -7}, '2022 Clip');
+
+// Export the image
+Export.image.toDrive({
+  image: image1.clip(aoi),
+  folder: 'GoogleEarthEngine',
+  description: 'S1_Flood_BD_20220_0521_0621_pm_RGB_90m',
+  scale: 90,
+  region: aoi
+});

@@ -1,0 +1,171 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var point = /* color: #98ff00 */ee.Geometry.Point([90.26281672413327, 23.461715303022835]),
+    mask = 
+    /* color: #0b4a8b */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[90.23054438526609, 23.483365582908192],
+          [90.23054438526609, 23.39737335189671],
+          [90.29508906300046, 23.39737335189671],
+          [90.29508906300046, 23.483365582908192]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Functions
+var addVVVH = function(image) {
+  var VV = image.select("VV");
+  var VH = image.select("VH");
+  var VVVH = VV.divide(VH).toDouble().rename("VVVH");
+  
+  return image.addBands(VVVH);
+};
+
+
+var addDateParts = function(image) {
+        
+        return image.set('year', ee.Image(image).date().get('year'))
+                  .set('month', ee.Image(image).date().get('month'))
+                  .set('day', ee.Image(image).date().get('day'))
+                  .set('doy', ee.Date(image.get('system:time_start'))
+                                            .getRelative('day', 'year'));
+        }; 
+
+
+// Data
+var col = ee.ImageCollection('COPERNICUS/S1_GRD')
+                .filterBounds(point)
+                // .filter(ee.Filter.calendarRange(2014,2016, 'year'))
+                // .filter(ee.Filter.calendarRange(2017,2017, 'year'))
+                // .filter(ee.Filter.calendarRange(2018,2018, 'year'))
+                // .filter(ee.Filter.calendarRange(2019,2019, 'year'))
+                .filter(ee.Filter.calendarRange(2020,2020, 'year'))
+                // .filter(ee.Filter.calendarRange(2021,2021, 'year'))
+                // .filter(ee.Filter.calendarRange(2022,2022, 'year'))
+                .filter(ee.Filter.listContains('transmitterReceiverPolarisation','VH'))
+                .filter(ee.Filter.contains('.geo', mask))
+                .filter(ee.Filter.eq('orbitProperties_pass', 'DESCENDING'));
+print('col all', col.size());
+// print(col);
+
+
+col = col.map(addVVVH).map(addDateParts);
+// print(col);
+
+
+col = col.map(function(image) {
+  return image.clip(mask);
+});
+// Visualization
+
+var distinctDOY = col.filterDate('2014-01-01','2022-06-30');
+
+// Define a filter that identifies which images from the complete collection
+// match the DOY from the distinct DOY collection.
+var filter = ee.Filter.equals({leftField: 'doy', rightField: 'doy'});
+
+// Define a join.
+var join = ee.Join.saveAll('doy_matches');
+
+// Apply the join and convert the resulting FeatureCollection to an
+// ImageCollection.
+var joinCol = ee.ImageCollection(join.apply(distinctDOY, col, filter));
+
+// print(joinCol);
+
+// Apply median reduction among matching DOY collections.
+var comp = joinCol.map(function(img) {
+  var doyCol = ee.ImageCollection.fromImages(
+    img.get('doy_matches')
+  );
+  return doyCol.reduce(ee.Reducer.median());
+});
+
+print('comp', comp);
+
+// Define RGB visualization parameters.
+var visParams = {
+  bands: ['VH_median','VV_median','VVVH_median'], 
+  min: -20, 
+  max: -7
+};
+
+// Import external packages for annotation
+var style = require('users/gena/packages:style');
+var utils = require('users/gena/packages:utils');
+var text = require('users/gena/packages:text');
+
+
+// Create RGB visualization images for use as animation frames.
+var rgbVis = comp.map(function(img) {
+  var textVis = {fontSize: 32, textColor: 'yellow',
+    outlineColor: '000000', outlineWidth: 2, 
+    outlineOpacity: 0.8
+  };
+  
+  // Title
+  var text_title = 'Padma Bridge time-lapse';
+  var locate_title = text.getLocation(mask, 'right', '2%','95%');
+  var title_scale = 21;
+  var title = text.draw(text_title, locate_title, title_scale, textVis);
+  
+  // Labels
+  var text_label1 = 'Mawa';
+  var locate_label1  = text.getLocation(mask, 'right', '12%','42%');
+  var scale_label1 = 12;
+  var label1 = text.draw(text_label1, locate_label1, scale_label1, textVis);
+  
+  var text_label2 = 'Naodoba';
+  var locate_label2  = text.getLocation(mask, 'right', '82%','85%');
+  var scale_label2 = 12;
+  var label2 = text.draw(text_label2, locate_label2, scale_label2, textVis);
+
+  
+  // Image Date and Time
+  var imageId = ee.String(ee.Image(img).id());
+  var dt = ee.String(imageId.split("_").get(4));
+  var year = dt.slice(0, 4);
+  var month = dt.slice(4,6);
+  var day = dt.slice(6,8);
+  var dayPlusOne = ee.String(ee.Number.parse(day).add(1));
+  day = ee.String(ee.Algorithms.If(dt.slice(9,11).compareTo('11'), dayPlusOne, day));
+  // var hour = ee.Algorithms.If(dt.slice(9,11).compareTo('11'), '09', '05');
+  // var amPm = ee.Algorithms.If(dt.slice(9,11).compareTo('11'), ' AM', ' PM');
+  // var min = dt.slice(11,13);
+  // var imageDate = day.cat("-").cat(month).cat("-").cat(year).cat(" ").cat(hour).cat(":").cat(min).cat(amPm);
+  var text_imageDate = day.cat("-").cat(month).cat("-").cat(year).cat(" ");
+  var locate_imageDate = text.getLocation(mask, 'right', '85%','52%');
+  var scale_imageDate = 25;
+  var imageDate = text.draw(text_imageDate, locate_imageDate, scale_imageDate, textVis);
+  
+  // Citation
+  var text_citation = 'Palash Basak |  Sentinel-1 Sat Data  |  GEE';
+  var locate_citation  = text.getLocation(mask, 'right', '95%','95%');
+  var scale_citation = 12;
+  var citation = text.draw(text_citation, locate_citation, scale_citation, textVis);
+
+  return img.visualize(visParams)
+            .clip(mask)
+            .blend(title)
+            .blend(label1)
+            .blend(label2)
+            .blend(imageDate)
+            .blend(citation);
+});
+
+print(rgbVis);
+
+// Define GIF visualization parameters.
+var gifParams = {
+  'region': mask,
+  'dimensions': 900,
+  'crs': 'EPSG:3857',
+  'framesPerSecond': 2
+};
+
+// Print the GIF URL to the console.
+print(rgbVis.getVideoThumbURL(gifParams));
+
+// Render the GIF animation in the console.
+print(ui.Thumbnail(rgbVis, gifParams));

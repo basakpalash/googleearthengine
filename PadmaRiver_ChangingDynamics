@@ -1,0 +1,101 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var AOI = 
+    /* color: #00ffff */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[89.61973703327, 23.888478320808456],
+          [89.61973703327, 23.15311744174376],
+          [90.78703439655125, 23.15311744174376],
+          [90.78703439655125, 23.888478320808456]]], null, false),
+    imageVisParam = {"opacity":1,"bands":["B3_median"],"palette":["00009b"]},
+    imageVisParam2 = {"opacity":1,"bands":["B3_median"],"palette":["880791"]};
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Author: Palash Basak
+// https://www.linkedin.com/in/palashbasak/
+
+// 16 June 2022
+
+// Link to this script: https://code.earthengine.google.com/6f49dffe8593788d28a150cf5dd97ca7
+
+Map.centerObject(AOI, 10);
+
+// Landsat 5
+// From 1992 to 2012
+
+// No Image was found for year 2002 and 2012
+// Ignore the error messages
+
+for (var i = 1987; i <= 2012; ++i) {
+  // Load an image collection, filtered so it's not too much data.
+  var collection = ee.ImageCollection('LANDSAT/LT05/C01/T1_TOA')
+    .filterDate(i + '-01-01', i + '-12-31')
+    .filterBounds(AOI);
+  
+  print(collection);
+  // Compute the median in each band, each pixel.
+  // Band names are B1_median, B2_median, etc.
+  var median = collection.reduce(ee.Reducer.median()).clip(AOI);
+  
+  var vis_param = {bands: ['B4_median', 'B5_median', 'B3_median'], gamma: 1.7};
+  Map.addLayer(median, vis_param, i + ' Landsat 5 image', false );
+  
+  var GREEN = median.select('B2_median');
+  var MIR = median.select('B5_median');
+  var MNDWI = GREEN.subtract(MIR).divide(GREEN.add(MIR));
+  Map.addLayer(MNDWI, {min: 0, max: 1}, i + ' MNDWI', false);
+  
+  var water = MNDWI.gt(0.1);
+  Map.addLayer(water.updateMask(water), {palette: ['e03809']}, i + ' Water', true ).setOpacity(0.5);
+  
+  // Export to Google Drive
+  Export.image.toDrive({
+    image: water.updateMask(water),
+    description: i + '_Water_Padma',
+    folder: 'GoogleEarthEngine',
+    scale: 30,
+    region: AOI
+  });
+}
+
+// var collection = ee.ImageCollection('LANDSAT/LT05/C01/T1_TOA')
+//     .filterDate('1987-01-01', '2012-12-31')
+//     .filterBounds(AOI);
+// print(collection);
+// Landsat 8
+// 2013 onward
+for (var i = 2013; i <= 2022; ++i) {
+  var collection = ee.ImageCollection('LANDSAT/LC08/C02/T1_TOA')
+    .filterDate(i + '-01-01', i + '-12-31')
+    .filterBounds(AOI);
+  
+  print(collection);
+  // Compute the median in each band, each pixel.
+  // Band names are B1_median, B2_median, etc.
+  var median = collection.reduce(ee.Reducer.median()).clip(AOI);
+  
+  var vis_param = {bands: ['B5_median', 'B6_median', 'B4_median'], gamma: 1.7};
+  Map.addLayer(median, vis_param, i + ' Landsat 8 image', false);
+  
+  var GREEN = median.select('B3_median');
+  var MIR = median.select('B6_median');
+  var MNDWI = GREEN.subtract(MIR).divide(GREEN.add(MIR));
+  Map.addLayer(MNDWI, {min: 0, max: 1}, i + ' MNDWI', false);
+  
+  var water = MNDWI.gt(0.1);
+  Map.addLayer(water.updateMask(water), {palette: ['346cfa']}, i + ' Water', true ).setOpacity(0.5);
+  
+  // Export to Google Drive
+  Export.image.toDrive({
+    image: water.updateMask(water),
+    description: i + '_Water_Padma',
+    folder: 'GoogleEarthEngine',
+    scale: 30,
+    region: AOI
+  });
+}
+

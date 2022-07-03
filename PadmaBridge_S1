@@ -1,0 +1,72 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = 
+    /* color: #d63000 */
+    /* shown: false */
+    ee.Geometry.Point([90.2619491565139, 23.435938089770215]);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+Map.centerObject(geometry, 13)
+
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+
+  // Bits 10 and 11 are clouds and cirrus, respectively.
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+
+  return image.updateMask(mask).divide(10000);
+}
+
+
+var dataset = ee.ImageCollection('COPERNICUS/S2_SR')
+                  .filterDate('2022-05-01', '2022-06-30')
+                  // Pre-filter to get less cloudy granules.
+                  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE',20))
+                  .filterBounds(geometry)
+                  .map(maskS2clouds);
+                  
+print(dataset)
+
+var visualization = {
+  min: 0.0,
+  max: 0.3,
+  bands: ['B4', 'B3', 'B2'],
+};
+
+Map.addLayer(dataset.mean(), visualization, 'RGB');
+
+
+
+var imgVV = ee.ImageCollection('COPERNICUS/S1_GRD')
+        .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))
+        .filter(ee.Filter.eq('instrumentMode', 'IW'))
+        .select('VV')
+        .filterBounds(geometry)
+        .map(function(image) {
+          var edge = image.lt(-30.0);
+          var maskedImage = image.mask().and(edge.not());
+          return image.updateMask(maskedImage);
+        });
+
+var desc = imgVV.filter(ee.Filter.eq('orbitProperties_pass', 'DESCENDING'));
+var asc = imgVV.filter(ee.Filter.eq('orbitProperties_pass', 'ASCENDING'));
+
+var spring = ee.Filter.date('2022-01-01', '2022-02-14');
+var lateSpring = ee.Filter.date('2022-02-15', '2022-04-14');
+var summer = ee.Filter.date('2022-04-15', '2022-06-14');
+
+var descChange = ee.Image.cat(
+        desc.filter(spring).mean(),
+        desc.filter(lateSpring).mean(),
+        desc.filter(summer).mean());
+
+var ascChange = ee.Image.cat(
+        asc.filter(spring).mean(),
+        asc.filter(lateSpring).mean(),
+        asc.filter(summer).mean());
+        
+Map.addLayer(ascChange, {min: -25, max: 5}, 'Multi-T Mean ASC', true);
+Map.addLayer(descChange, {min: -25, max: 5}, 'Multi-T Mean DESC', true);
